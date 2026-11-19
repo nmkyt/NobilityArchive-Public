@@ -1,7 +1,7 @@
 # База данных
 
-Описание соответствует ветке `design/archive-home`, коммит `190340c`, на
-17 ноября 2026 года.
+Описание соответствует релизу **2.0.1** от 19 ноября 2026 года:
+тег `v2.0.1`, ветка `main`, коммит `214f7d2`.
 Модели описаны через Django ORM; основная СУБД — MySQL на хостинге
 и PostgreSQL в локальной разработке. Выбор задаётся переменными окружения.
 
@@ -17,17 +17,22 @@ erDiagram
     Person ||--o{ Service : service
     Person ||--o{ MilitaryService : campaigns
     Person ||--o{ Property : property
-    Person }o--o{ SourceFund : funds
+    Person ||--o{ PersonFundCitation : citations
+    SourceFund ||--o{ PersonFundCitation : cited_fund
     Person }o--o{ LibraryEntry : literature
     Source ||--o{ SourceFund : funds
+    Source ||--o{ SourceFundDescription : shared_descriptions
+    SourceFundDescription |o--o{ SourceFund : described_funds
     Source ||--o{ SourcePhoto : photos
     NobleCorporation ||--o{ CorporationPhoto : photos
-    NobleCorporation }o--o{ SourceFund : funds
+    NobleCorporation ||--o{ CorporationFundCitation : citations
+    SourceFund ||--o{ CorporationFundCitation : cited_fund
     NobleCorporation }o--o{ LibraryEntry : literature
     Territory }o--o{ Person : servants
     Territory }o--o{ NobleCorporation : corporations
     Territory }o--o{ LibraryEntry : literature
-    Territory }o--o{ SourceFund : funds
+    Territory ||--o{ TerritoryFundCitation : citations
+    SourceFund ||--o{ TerritoryFundCitation : cited_fund
 ```
 
 ### Служители
@@ -58,6 +63,19 @@ erDiagram
 и отдельное поле отображения в источниках. При пустом поле отображения используется
 название фонда. К служителю можно привязать конкретный фонд.
 
+В 2.0.1 добавлена `SourceFundDescription` — общее описание нескольких фондов
+одного архива. Фонд может ссылаться на одно такое описание через необязательный
+внешний ключ. При удалении общего описания фонды сохраняются (`SET_NULL`).
+Группировка в интерфейсе не объединяет идентификаторы фондов: каждый остаётся
+отдельной целью поиска и цитирования. Общий текст также участвует в поиске.
+
+Связи с фондами используют промежуточные модели `PersonFundCitation`,
+`CorporationFundCitation` и `TerritoryFundCitation`. В них хранится поле `detail`
+для описи, дела и листов — отдельно для каждой пары «карточка — фонд».
+Общий абстрактный класс `FundCitation` не создаёт самостоятельной таблицы.
+Миграции используют существующие таблицы связей, сохраняют привязки и добавляют
+новое текстовое поле; уникальность пары карточки и фонда сохраняется.
+
 Миграция `sources.0004` переносит прежнюю общую характеристику архива в фонды.
 Явные заголовки фондов разделяются, неоднозначный текст сохраняется с пометкой
 о необходимости уточнения. Затем старое поле удаляется. Такие записи требуют
@@ -80,12 +98,14 @@ erDiagram
 масштабы, географический охват и авторство. Файлы сканов и изображений лежат в media;
 в базе сохраняются пути и метаданные.
 
-`ReferenceTerm` — термин, текстовое определение и обязательная HTTP(S)-ссылка на словарь.
+`ReferenceTerm` — термин, текстовое определение и необязательная HTTP(S)-ссылка на словарь.
 Ссылки на термины и записи других разделов вставляются в поддерживаемые текстовые поля.
 
 Связи корпораций с `SourceFund` и `LibraryEntry`, связь территорий с `SourceFund`
 и выбор главного фото корпорации добавлены коммитом `190340c`.
 Им соответствуют миграции `corporations.0003` и `territories.0011`.
+Детализация архивного шифра добавлена миграциями `archive_servants.0005`,
+`corporations.0004` и `territories.0012`, общие описания — `sources.0006`.
 
 ## Совместная и личная работа
 
@@ -110,6 +130,11 @@ erDiagram
 
 Лента `ArchiveChange` хранит последнее состояние изменения каждой записи;
 она не заменяет журнал действий `Activity` и историю решений по предложениям.
+
+Первичный ключ `SiteSettings` задаётся явно, запись настроек имеет ID 1.
+Миграция `main.0024` убирает оставшийся автоинкремент в старых базах для
+совместимости с MySQL. Восстановление пароля использует стандартный механизм
+токенов Django и не добавляет отдельной таблицы.
 
 ## Работа с неполными сведениями
 
